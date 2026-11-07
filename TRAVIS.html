@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Travis AI - Turbo Terminal</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            background: #000000;
+            color: #ffffff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+        .container { text-align: center; }
+        .ai-name {
+            font-size: 80px;
+            font-weight: bold;
+            letter-spacing: 5px;
+            text-transform: uppercase;
+            margin-bottom: 50px;
+            text-shadow: 0 0 15px rgba(255, 255, 255, 0.6);
+        }
+        .control-panel {
+            position: absolute;
+            bottom: 60px;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+        }
+        button {
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            outline: none;
+            padding: 10px;
+        }
+        .mic-icon {
+            font-size: 60px;
+            transition: all 0.3s ease;
+            filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.4));
+        }
+        .listening {
+            transform: scale(1.25);
+            filter: drop-shadow(0 0 25px #00f3ff) !important;
+        }
+        .box {
+            margin-top: 20px;
+            max-width: 600px;
+            font-size: 16px;
+            color: #888888;
+            font-style: italic;
+            word-wrap: break-word;
+            text-align: center;
+            padding: 0 20px;
+            line-height: 1.5;
+        }
+        .status-tracker {
+            color: #00f3ff;
+            font-weight: bold;
+            margin-bottom: 5px;
+            letter-spacing: 1px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div class="ai-name">TRAVIS AI</div>
+    </div>
+
+    <div class="control-panel">
+        <button id="start-btn">
+            <span class="mic-icon">🎙️</span>
+        </button>
+        <div id="status" class="status-tracker">CLICK MIC TO TALK TO TRAVIS</div>
+        <div id="user-speech" class="box">...</div>
+        <div id="key-link" class="box" style="cursor:pointer;text-decoration:underline;margin-top:8px;font-size:13px;"></div>
+        <div id="test-link" class="box" style="cursor:pointer;text-decoration:underline;margin-top:4px;font-size:13px;">TEST MY KEY</div>
+    </div>
+
+    <script>
+        // ====== SETTINGS ======
+        const CONFIG = {
+            API_KEY: "sk_AmdYa8oECPAxuZAgXKPMBqzvCqewoVSl",
+            MODEL: "openai/gpt-5.4-nano",
+            TIMEOUT_MS: 10000,
+            FACTS: [
+                "The US president is Donald Trump (47th president, in office since January 20, 2025). The US vice president is JD Vance.",
+                "The UK prime minister is Andy Burnham, who replaced Keir Starmer on July 20, 2026.",
+                "India: Prime Minister Narendra Modi, President Droupadi Murmu, Vice President C. P. Radhakrishnan.",
+                "The pope is Leo XIV, elected May 8, 2025 as the first US-born pope.",
+                "Spain won the 2026 FIFA World Cup, beating Argentina 1-0 after extra time on July 19, 2026.",
+                "India won the 2026 T20 World Cup, beating New Zealand by 96 runs on March 8, 2026.",
+                "Royal Challengers Bengaluru won IPL 2026, beating Gujarat Titans in the final on May 31, 2026.",
+                "The 2026 Nobel Peace Prize went to Navi Pillay."
+            ]
+        };
+        // ======================
+
+        let isWaitingForCommand = false;
+        let currentUtterance = null;
+
+        const startBtn = document.getElementById('start-btn');
+        const micIcon = document.querySelector('.mic-icon');
+        const statusDiv = document.getElementById('status');
+        const userSpeechDiv = document.getElementById('user-speech');
+        const synth = window.speechSynthesis;
+
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        let recognition = null;
+
+        if (SpeechRecognition) {
+            recognition = new SpeechRecognition();
+            recognition.lang = 'en-US';
+            recognition.interimResults = false;
+            recognition.maxAlternatives = 1;
+
+            recognition.onresult = (event) => {
+                const spokenText = event.results[0][0].transcript;
+                userSpeechDiv.innerText = `You: “${spokenText}”`;
+                askTravis(spokenText);
+            };
+
+            recognition.onerror = (event) => {
+                const messages = {
+                    'not-allowed': "MIC BLOCKED. ALLOW MICROPHONE ACCESS (USE LOCALHOST OR HTTPS).",
+                    'service-not-allowed': "MIC BLOCKED. ALLOW MICROPHONE ACCESS (USE LOCALHOST OR HTTPS).",
+                    'no-speech': "DIDN’T HEAR YOU. CLICK TO TALK.",
+                    'audio-capture': "NO MICROPHONE FOUND.",
+                    'network': "SPEECH SERVICE UNREACHABLE. CHECK INTERNET."
+                };
+                statusDiv.innerText = messages[event.error] || `MIC ERROR (${event.error}). CLICK TO TALK.`;
+            };
+
+            recognition.onend = () => {
+                micIcon.classList.remove('listening');
+                isWaitingForCommand = false;
+            };
+        } else {
+            statusDiv.innerText = "SPEECH RECOGNITION NOT SUPPORTED. USE CHROME OR EDGE.";
+        }
+
+        startBtn.addEventListener('click', () => {
+            if (!recognition) return;
+
+            if (isWaitingForCommand) {
+                recognition.stop();
+                return;
+            }
+
+            userSpeechDiv.innerText = "";
+            statusDiv.innerText = "INITIALIZING...";
+
+            speak("Hello, boss.", () => {
+                try {
+                    isWaitingForCommand = true;
+                    recognition.start();
+                    statusDiv.innerText = "TRAVIS IS LISTENING...";
+                    micIcon.classList.add('listening');
+                } catch (e) {
+                    isWaitingForCommand = false;
+                    statusDiv.innerText = "MIC ERROR. CLICK TO TALK.";
+                }
+            });
+        });
+
+        function getKey() {
+            try { return (localStorage.getItem('travis_key') || CONFIG.API_KEY || "").trim(); }
+            catch (e) { return (CONFIG.API_KEY || "").trim(); }
+        }
+        const keyLink = document.getElementById('key-link');
+        function refreshKeyLink() {
+            keyLink.innerText = getKey() ? "API KEY SET (CLICK TO CHANGE)" : "sk_AmdYa8oECPAxuZAgXKPMBqzvCqewoVSl";
+        }
+        keyLink.addEventListener('click', () => {
+            const k = prompt("Paste your Pollinations SECRET key (starts with sk_). Leave empty to clear.", "");
+            if (k === null) return;
+            if (k.trim().startsWith("pk_")) {
+                alert("That is a pk_ key. Create a secret key (sk_) at enter.pollinations.ai/keys instead.");
+                return;
+            }
+            try { localStorage.setItem('travis_key', k.trim()); }
+            catch (e) { CONFIG.API_KEY = k.trim(); }
+            refreshKeyLink();
+            if (getKey()) testKey();
+        });
+        refreshKeyLink();
+
+        async function testKey() {
+            const key = getKey();
+            if (!key) { userSpeechDiv.innerText = "No key saved yet. Click the key link first."; return; }
+            if (key.startsWith("pk_")) { userSpeechDiv.innerText = "That is a pk_ key, which Pollinations rejects. Use an sk_ secret key."; return; }
+            statusDiv.innerText = "TESTING KEY...";
+            userSpeechDiv.innerText = "";
+            const lines = [];
+            const headers = { Authorization: `Bearer ${key}` };
+
+            async function check(label, url, describe) {
+                try {
+                    const r = await fetch(url, { headers });
+                    if (!r.ok) { lines.push(`${label}: HTTP ${r.status}`); return; }
+                    lines.push(`${label}: ${describe(await r.json())}`);
+                } catch (e) { lines.push(`${label}: blocked/network/CORS`); }
+            }
+            await check("key", "https://gen.pollinations.ai/account/key", d => {
+                const info = [d.valid !== undefined ? "valid=" + d.valid : "", d.type ? "type=" + d.type : ""].filter(Boolean).join(" ");
+                return "OK" + (info ? " (" + info + ")" : "");
+            });
+            await check("balance", "https://gen.pollinations.ai/account/balance", d => d.balance !== undefined ? String(d.balance) : "OK");
+
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 15000);
+            try {
+                const reply = await chatCall("https://gen.pollinations.ai/v1/chat/completions", CONFIG.MODEL, "Reply with one word.", "ping", controller.signal, key);
+                lines.push(reply.trim() ? "chat: OK" : "chat: empty reply");
+            } catch (e) {
+                const msg = e.name === "AbortError" ? "timeout" : e.message === "Failed to fetch" ? "blocked/network/CORS" : e.message;
+                lines.push(`chat: ${msg}`);
+            } finally { clearTimeout(timer); }
+
+            statusDiv.innerText = "KEY TEST DONE.";
+            userSpeechDiv.innerText = lines.join(" | ");
+        }
+        document.getElementById('test-link').addEventListener('click', testKey);
+
+        const STOPWORDS = new Set(["who","what","whats","the","and","for","with","does","did","has","have","tell","about","current","now","today","time","date","won","how","are","was","you","can","please","give","name","which","when","where","this","that"]);
+
+        function relevantFacts(question, max) {
+            const keys = (question.toLowerCase().match(/[a-z0-9]{3,}/g) || []).filter(w => !STOPWORDS.has(w));
+            return CONFIG.FACTS
+                .map(f => ({ f, score: keys.filter(k => f.toLowerCase().includes(k)).length }))
+                .filter(x => x.score > 0)
+                .sort((a, b) => b.score - a.score)
+                .slice(0, max)
+                .map(x => x.f);
+        }
+
+        function buildPersona(facts) {
+            const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+            let p = `Your name is Travis. Always address the user as boss. Give an ultra-short reply under 10 words. Today is ${today}. Your training data is outdated, so if unsure about recent events, say so briefly.`;
+            if (facts.length) p += ` Trust these current facts over your memory: ${facts.join(" ")}`;
+            return p;
+        }
+
+        async function chatCall(url, model, system, user, signal, key) {
+            const headers = { "Content-Type": "application/json" };
+            if (key) headers.Authorization = `Bearer ${key}`;
+            const res = await fetch(url, {
+                method: "POST",
+                headers,
+                signal,
+                body: JSON.stringify({ model, messages: [{ role: "system", content: system }, { role: "user", content: user }] })
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            return (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || "";
+        }
+
+        async function getCall(url, signal) {
+            const res = await fetch(url, { signal });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            return res.text();
+        }
+
+        async function fetchReply(promptText) {
+            const errors = [];
+            const attempts = [];
+            const fullPersona = buildPersona(CONFIG.FACTS);
+            const shortPersona = buildPersona(relevantFacts(promptText, 3));
+
+            const key = getKey();
+            if (key.startsWith("pk_")) {
+                errors.push("gen: pk_ keys are rejected, use an sk_ key");
+            } else if (key) {
+                attempts.push({ name: "gen", run: sig => chatCall("https://gen.pollinations.ai/v1/chat/completions", CONFIG.MODEL, fullPersona, promptText, sig, key) });
+            } else {
+                errors.push("gen: no API key set");
+            }
+            attempts.push({ name: "legacy-post", run: sig => chatCall("https://text.pollinations.ai/openai", "openai", fullPersona, promptText, sig) });
+            attempts.push({ name: "legacy-get", run: sig => getCall(`https://text.pollinations.ai/${encodeURIComponent(promptText)}?system=${encodeURIComponent(shortPersona)}&referrer=travis-ai`, sig) });
+
+            for (const a of attempts) {
+                const controller = new AbortController();
+                const timer = setTimeout(() => controller.abort(), CONFIG.TIMEOUT_MS);
+                try {
+                    let text = ((await a.run(controller.signal)) || "").trim();
+                    if (!text) throw new Error("empty reply");
+                    if (text.startsWith('{')) throw new Error(`bad body: ${text.slice(0, 60)}`);
+                    return { text: text.split(/(?<=[.!?])\s+/).slice(0, 2).join(" ").slice(0, 200), errors };
+                } catch (err) {
+                    const msg = err.name === "AbortError" ? "timeout"
+                              : err.message === "Failed to fetch" ? "blocked/network/CORS"
+                              : err.message;
+                    errors.push(`${a.name}: ${msg}`);
+                } finally {
+                    clearTimeout(timer);
+                }
+            }
+            return { text: null, errors };
+        }
+
+        function localReply(text) {
+            const t = text.toLowerCase();
+            if (/\b(hi|hello|hey)\b/.test(t)) return "Hello, boss. Ready when you are.";
+            if (t.includes("your name") || t.includes("who are you")) return "I’m Travis, your assistant, boss.";
+            if (t.includes("how are you")) return "Running smoothly, boss.";
+            if (t.includes("time")) return `It’s ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}, boss.`;
+            if (t.includes("date") || t.includes("day is it")) return `Today is ${new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}, boss.`;
+            if (t.includes("thank")) return "Anytime, boss.";
+            return "My online brain is offline, boss. Try again shortly.";
+        }
+
+        async function askTravis(promptText) {
+            statusDiv.innerText = "TRAVIS THINKING...";
+
+            const { text, errors } = await fetchReply(promptText);
+            if (text) {
+                statusDiv.innerText = "READY.";
+                userSpeechDiv.innerText = text;
+                speak(text);
+            } else {
+                const reply = localReply(promptText);
+                statusDiv.innerText = errors[0] && errors[0].includes("no API key") ? "OFFLINE: NO API KEY. CLICK THE LINK BELOW." : "READY. (OFFLINE MODE)";
+                userSpeechDiv.innerText = `${reply}\n[${errors.join(" | ")}]`;
+                speak(reply);
+            }
+        }
+
+        function speak(textString, callback) {
+            if (!synth) { if (callback) callback(); return; }
+
+            synth.cancel();
+            const utterance = new SpeechSynthesisUtterance(textString);
+            const voices = synth.getVoices();
+            const preferred = voices.find(v => v.name.includes('Google') || v.name.includes('Zira') || v.name.includes('Samantha'));
+            if (preferred) utterance.voice = preferred;
+
+            let called = false;
+            const finish = () => { if (!called) { called = true; if (callback) callback(); } };
+            utterance.onend = finish;
+            utterance.onerror = finish;
+            if (callback) setTimeout(finish, 4000);
+
+            currentUtterance = utterance;
+            synth.speak(utterance);
+        }
+
+        if (synth) synth.onvoiceschanged = () => synth.getVoices();
+    </script>
+</body>
+</html>
+```[cite: 1]
